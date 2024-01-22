@@ -1,0 +1,8 @@
+AWSTemplateFormatVersion: 2010-09-09
+Resources:
+  IACBucket:
+    Type: 'AWS::S3::Bucket'
+Outputs:
+  InfrastructureBucket:
+    Value: !Ref IACBucket
+    Description: S3 Bucket to host our IAC Templates
