@@ -1,0 +1,118 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: >-
+  Setup CICD pipeline to build and publish content of Hugo based website from
+  AWS CodeCommit repo to s3 bucket.
+Resources:
+  ArtifactBucket:
+    Type: 'AWS::S3::Bucket'
+  CodeCommitRepo:
+    Type: AWS::CodeCommit::Repository
+    Properties:
+      RepositoryDescription: Repository to host content of your Hugo website
+      RepositoryName: !Ref RepoName
+  WebHostingBucket:
+    Type: 'AWS::S3::Bucket'
+    Properties:
+      BucketName: !Ref HostingBucketName
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: false
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: ObjectWriter      
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: 404.html
+  WebHostingBucketPolicy:
+    Type: 'AWS::S3::BucketPolicy'
+    Properties:
+      PolicyDocument:
+        Id: MyPolicy
+        Version: 2012-10-17
+        Statement:
+          - Sid: PublicReadForGetBucketObjects
+            Effect: Allow
+            Principal: '*'
+            Action: 's3:GetObject'
+            Resource: !Join 
+              - ''
+              - - 'arn:aws:s3:::'
+                - !Ref WebHostingBucket
+                - /*
+      Bucket: !Ref WebHostingBucket
+  IAMRoleStack:
+    Type: 'AWS::CloudFormation::Stack'
+    DependsOn:
+      - ArtifactBucket
+    Properties:
+      TemplateURL: !Sub >-
+        https://${S3BucketName}.s3.amazonaws.com/${S3KeyPrefix}/iam.template.yaml
+      Parameters:
+        WebsiteBucket: !Ref WebHostingBucket
+        ArtifactBucket: !Ref ArtifactBucket
+  CodePipelineStack:
+    Type: 'AWS::CloudFormation::Stack'
+    Properties:
+      TemplateURL: !Sub >-
+        https://${S3BucketName}.s3.amazonaws.com/${S3KeyPrefix}/pipeline.template.yaml
+      Parameters:
+        ArtifactBucket: !Ref ArtifactBucket
+        CodePipelineRoleArn: !GetAtt
+          - IAMRoleStack
+          - Outputs.CodePipelineRoleArn
+        CodeBuildRoleArn: !GetAtt
+          - IAMRoleStack
+          - Outputs.CodeBuildRoleArn
+        CloudfrontDistId: '!Ref CloudfrontDistId'
+        CloudfrontRole: '!Ref CloudfrontRoleArn'
+        WebsiteBucket: !Ref WebHostingBucket
+        RepoName: !Ref RepoName
+        RepoBranch: 'master'
+
+Parameters:
+  RepoName:
+    Description: This is the repository where your hugo files will live.
+    Default: hugo-pipeline
+    Type: String
+    MinLength: 1
+  HostingBucketName:
+    Description: >-
+      This is the bucket name where your website content will be (after hugo pipeline)
+      -(must be globally unique!)-
+      Naming convention rules are available in AWS Documentation.
+      https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucketnamingrules.html
+      As a general rule, Bucket names can consist only of lowercase letters, numbers, dots (.), and hyphens (-).
+      Bucket names must begin and end with a letter or number. No more than 63 characters, no less than 3.
+    Default: your-desired-bucket-name-for-hosting-your-website
+    Type: String
+    MinLength: 3
+  S3BucketName:
+    Default: your-iac-bucket-name-goes-here
+    Description: >-
+      This is the bucket name where you Infrastructure as Code templates are stored.
+      You can get this from the Output tab in the pre-requisite section.
+      Naming convention rules are available in AWS Documentation.
+      https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucketnamingrules.html
+      As a general rule, Bucket names can consist only of lowercase letters, numbers, dots (.), and hyphens (-).
+      Bucket names must begin and end with a letter or number. No more than 63 characters, no less than 3.
+    Type: String
+  S3KeyPrefix:
+    Default: hugo-pipeline
+    Description: >-
+      This is the folder in your Infrastructure as Code Bucket where all the other cloudformation templates reside.
+    Type: String
+
+Outputs:
+  CodeCommitRepository:
+    Description: AWS CodeCommit repository
+    Value: !Ref CodeCommitRepo
+  WebsiteURL:
+    Value: !Ref WebHostingBucket
+    Description: URL for website hosted on S3
+  CodePipelineURL:
+    Description: The URL of the created Pipeline
+    Value: !Sub
+      - >-
+        https://${AWS::Region}.console.aws.amazon.com/codepipeline/home?region=${AWS::Region}#/view/${CodePipelineName}
+      - CodePipelineName: !GetAtt
+          - CodePipelineStack
+          - Outputs.CodePipelineName
